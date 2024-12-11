@@ -47,7 +47,7 @@ class ArithmeticMeanAgent(
         override fun action() {
             when (phase) {
                 1 -> {
-                    // Рассылаем свой номер соседям
+                    // Рассылаем своё число соседям
                     for (j in neighbors) {
                         val msg = ACLMessage(ACLMessage.INFORM)
                         msg.addReceiver(mainController.agents[j - 1].aid)
@@ -60,7 +60,7 @@ class ArithmeticMeanAgent(
                 }
 
                 2 -> {
-                    // Получаем номера соседей
+                    // Получаем числа от соседей
                     val msg = receive()
                     if (msg != null) {
                         val num = msg.content.toInt()
@@ -120,6 +120,8 @@ class ArithmeticMeanAgent(
             }
         }
     }
+
+    fun isCalculated() = phase == 6
 }
 
 class MainController(
@@ -135,7 +137,7 @@ class MainController(
     fun initAgents() {
         p.setParameter(Profile.MAIN_HOST, "localhost")
         p.setParameter(Profile.MAIN_PORT, "10098")
-        p.setParameter(Profile.GUI, "true")
+        p.setParameter(Profile.GUI, "false")
         cc = rt.createMainContainer(p)
 
         try {
@@ -160,6 +162,8 @@ class MainController(
     }
 
     fun getApproximativeMeanValue() = agents[0].getMeanValue()
+
+    fun isCalculated() = agents.all { it.isCalculated() }
 }
 
 fun main() {
@@ -174,9 +178,10 @@ fun main() {
     val mc = MainController(nAgents, numbers, topology)
     mc.initAgents()
 
-    var status = false
-    while (!status) {
-        status = mc.agents.all { !it.isAlive }
+    // ждём, пока все агенты завершат работу
+    var isCalculated = false
+    while (!isCalculated) {
+        isCalculated = mc.isCalculated()
     }
 
     val approximativeMeanValue = mc.getApproximativeMeanValue()
