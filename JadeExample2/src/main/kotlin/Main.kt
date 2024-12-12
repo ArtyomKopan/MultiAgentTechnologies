@@ -8,6 +8,7 @@ import kotlin.math.abs
 import jade.core.Profile
 import jade.core.ProfileImpl
 import jade.core.Runtime
+import kotlin.math.ceil
 
 var messagesCount = 0
 var addingsCount = 0
@@ -30,11 +31,15 @@ class ArithmeticMeanAgent(
     private var phase = 1
     private var nAgentsInNetwork = 0
     private var meanValue = 0.0
+    private var depth = 0
+    private var agentCyclesCount = 0
 
-    fun configureTopology(neighbors_: List<Int>, number_: Int, nAgentsInNetwork_: Int) {
+    fun configureTopology(neighbors_: List<Int>, number_: Int, nAgentsInNetwork_: Int, depth_: Int) {
         neighbors = neighbors_
         agentNumber = number_
         nAgentsInNetwork = nAgentsInNetwork_
+        depth = depth_
+        accumulatedNumbers[agentID.toString()] = agentNumber
     }
 
     fun getMeanValue() = meanValue
@@ -53,9 +58,11 @@ class ArithmeticMeanAgent(
                         msg.addReceiver(mainController.agents[j - 1].aid)
                         msg.content = agentNumber.toString()
                         send(msg)
+                        println("$agentID -> $j: ${msg.content}")
                         messagesCount++
                     }
                     cyclesCount++
+//                    agentCyclesCount++
                     phase = 2
                 }
 
@@ -65,9 +72,10 @@ class ArithmeticMeanAgent(
                     if (msg != null) {
                         val num = msg.content.toInt()
                         accumulatedNumbers[msg.sender.localName] = num
-                        if (accumulatedNumbers.size == neighbors.size) {
+                        if (accumulatedNumbers.size == neighbors.size + 1) {
                             phase = 3
                         }
+                        println("$agentID <- ${msg.sender.localName}: ${msg.content}; numbers = $accumulatedNumbers; phase = $phase")
                     } else {
                         block()
                     }
@@ -81,9 +89,11 @@ class ArithmeticMeanAgent(
                         msg.addReceiver(mainController.agents[j - 1].aid)
                         msg.content = accumulatedNumbers.toString()
                         send(msg)
+                        println("$agentID -> $j: ${msg.content}")
                         messagesCount++
                     }
                     cyclesCount++
+                    agentCyclesCount++
                     phase = 4
                 }
 
@@ -92,16 +102,18 @@ class ArithmeticMeanAgent(
                     val msg = receive()
                     if (msg != null) {
                         val content = msg.content
-                        val records = content.slice(1 until content.length - 1).split(", ")
+                        val records = content.slice(1..content.length - 2).split(", ")
                         for (record in records) {
                             val (aid, number) = record.split("=")
                             if (aid !in accumulatedNumbers.keys) {
                                 accumulatedNumbers[aid] = number.toInt()
                             }
                         }
-                        if (accumulatedNumbers.size == nAgentsInNetwork) {
-                            phase = 5
-                        }
+//                        if (accumulatedNumbers.size == nAgentsInNetwork) {
+//                            phase = 5
+//                        }
+                        phase = if (agentCyclesCount == depth) 5 else 3
+                        println("$agentID <- ${msg.sender.localName}: ${msg.content}; numbers = $accumulatedNumbers")
                     } else {
                         block()
                     }
@@ -127,7 +139,8 @@ class ArithmeticMeanAgent(
 class MainController(
     private val nAgents: Int,
     private val numbers: List<Int>,
-    private val topology: List<Pair<Int, Int>>
+    private val topology: List<Pair<Int, Int>>,
+    private val depth: Int
 ) {
     val agents = mutableListOf<ArithmeticMeanAgent>()
     val rt = Runtime.instance()
@@ -150,7 +163,7 @@ class MainController(
                 val agentNeighbors =
                     topology.filter { it.first == i }.map { it.second } + topology.filter { it.second == i }
                         .map { it.first }
-                agent.configureTopology(agentNeighbors, numbers[i - 1], nAgents)
+                agent.configureTopology(agentNeighbors, numbers[i - 1], nAgents, depth)
                 cc.acceptNewAgent(i.toString(), agent)
             }
             for (i in 1..nAgents) {
@@ -171,11 +184,14 @@ fun main() {
     val numbersFile = File("C:/Users/kopan/Programming/MultiagentTechnologies/JadeExample2/numbers.txt")
     val topologyFile = File("C:/Users/kopan/Programming/MultiagentTechnologies/JadeExample2/network_topology.txt")
     val numbers = numbersFile.readLines().map { it.toInt() }
-    val topology = topologyFile.readLines()
+    var topology = topologyFile.readLines()
         .map { Pair(it.split(" ")[0].toInt(), it.split(" ")[1].toInt()) }
+    val depth = topology.first().first
+    topology = topology.subList(1, topology.size)
+
     val truthMeanValue = numbers.sum().toDouble() / numbers.size
 
-    val mc = MainController(nAgents, numbers, topology)
+    val mc = MainController(nAgents, numbers, topology, depth)
     mc.initAgents()
 
     // ждём, пока все агенты завершат работу
@@ -186,6 +202,8 @@ fun main() {
 
     val approximativeMeanValue = mc.getApproximativeMeanValue()
 
+    cyclesCount = ceil(cyclesCount.toDouble() / nAgents).toInt()
+
     println("Истинное среднее арифметическое = $truthMeanValue")
     println("Вычисленное среднее значение = $approximativeMeanValue")
     println("Невязка = ${abs(truthMeanValue - approximativeMeanValue)}")
@@ -193,6 +211,7 @@ fun main() {
     println("Число сообщений в центр = 0")
     println("Число сложений = $addingsCount")
     println("Число делений = $divisionsCount")
+    println("Число тактов = $cyclesCount")
 
     val cost =
         (nAgents + 1) * c_m + messagesCount * c_L + 0 * c_G + addingsCount * c_S + divisionsCount * c_d + cyclesCount * c_t
