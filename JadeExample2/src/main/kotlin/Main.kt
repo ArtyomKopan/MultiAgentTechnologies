@@ -79,7 +79,7 @@ class ArithmeticMeanAgent(
                     } else {
                         block()
                     }
-                    cyclesCount++
+//                    cyclesCount++
                 }
 
                 3 -> {
@@ -109,15 +109,12 @@ class ArithmeticMeanAgent(
                                 accumulatedNumbers[aid] = number.toInt()
                             }
                         }
-//                        if (accumulatedNumbers.size == nAgentsInNetwork) {
-//                            phase = 5
-//                        }
-                        phase = if (agentCyclesCount == depth) 5 else 3
+                        phase = if (agentCyclesCount == depth + 1) 5 else 3
                         println("$agentID <- ${msg.sender.localName}: ${msg.content}; numbers = $accumulatedNumbers")
                     } else {
                         block()
                     }
-                    cyclesCount++
+//                    cyclesCount++
                 }
 
                 5 -> {
