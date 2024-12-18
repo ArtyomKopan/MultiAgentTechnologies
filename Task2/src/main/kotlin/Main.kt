@@ -15,6 +15,7 @@ import kotlin.math.pow
 const val p = 0.5 // вероятность доступности вероятностной связи
 val noiseGenerator = NormalDistribution(0.0, 0.5)
 val randomNumberGenerator = UniformRealDistribution(0.0, 1.0)
+var t = 0 // время
 
 // типы рёбер
 const val SIMPLE = 0
@@ -23,7 +24,7 @@ const val DELAYED = 2
 
 class ConsensusAgent(
     val agentID: Int,
-    private var delta: Double = 0.5,
+    private var delta: Double = 0.1,
     private val epsilon: Double = 0.1,
     private val mainController: MainController
 ) : Agent() {
@@ -53,7 +54,7 @@ class ConsensusAgent(
         delayedEdge = neighbors.find { it.second == DELAYED }?.first
         probabilisticEdge = neighbors.find { it.second == PROBABILISTIC }?.first
         neighbors.indices.forEach { hasNeighborsConsensus[it] = false }
-        delta = 1.0 / (1 + neighbors.size)
+//        delta = 1.0 / (1 + neighbors.size)
     }
 
     fun getMeanValue() = currentMeanValue
@@ -138,10 +139,11 @@ class ConsensusAgent(
 
                 3 -> {
                     // ждём, пока все соседи не достигнут консенсуса, и рассылаем им своё число и статус
+//                    sendMessagesToAllNeighbors()
                     if (hasNeighborsConsensus.values.all { it }) {
                         phase = 4
                     } else {
-//                        sendMessagesToAllNeighbors()
+                        sendMessagesToAllNeighbors()
                         val msg = receive()
                         if (msg != null) {
                             val sender = msg.sender.localName.toInt()
@@ -176,7 +178,7 @@ class MainController(
 
         try {
             for (i in 1..nAgents) {
-                val agent = ConsensusAgent(i, 0.5, 0.1, this)
+                val agent = ConsensusAgent(i, 0.1, 0.1, this)
                 agents.add(agent)
             }
             for (i in 1..nAgents) {
@@ -196,8 +198,8 @@ class MainController(
         }
     }
 
-    //    fun getApproximativeMeanValue() = agents[0].getMeanValue()
-    fun getApproximativeMeanValue() = agents.minOf { it.getMeanValue() }
+        fun getApproximativeMeanValue() = agents[0].getMeanValue()
+//    fun getApproximativeMeanValue() = agents.sumOf { it.getMeanValue() } / nAgents
 
     fun isCalculated() = agents.all { it.isCalculated() }
 }
