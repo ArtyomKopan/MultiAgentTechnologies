@@ -13,6 +13,7 @@ dependencies {
     testImplementation(kotlin("test"))
     implementation(files("../Task1/libs/jade.jar"))
     implementation("org.apache.commons:commons-math3:3.6.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
 }
 
 tasks.test {

@@ -8,8 +8,10 @@ import kotlin.math.abs
 import jade.core.Profile
 import jade.core.ProfileImpl
 import jade.core.Runtime
+import kotlinx.coroutines.*
 import org.apache.commons.math3.distribution.NormalDistribution
 import org.apache.commons.math3.distribution.UniformRealDistribution
+import java.util.Queue
 import kotlin.math.pow
 
 const val p = 0.5 // вероятность доступности вероятностной связи
@@ -21,9 +23,32 @@ const val SIMPLE = 0
 const val PROBABILISTIC = 1
 const val DELAYED = 2
 
+/*
+TODO: новая идея по реализации ПЛГ.
+отправляем сообщения всем соседям
+заводим корутину, которая делает Thread.sleep(1000)
+принимаем сообщения от соседей и записываем их в словарь с сообщениями
+делаем join с корутиной (т.е. принимаем сообщения в течение 1 секунды, а на остальные, которые не дошли. забиваем)
+также забиваем на сообщения которые не дошли, никакое кэширование не используем
+проверяем на достижение консенсуса
+если консенсус достигнут:
+    переходим в фазу 3
+иначе:
+    обновляем среднее
+    переходим в фазу отправки
+фаза 3:
+рассылаем своё посчитанное среднее соседям
+так же принимаем сообщения от соседей в течение одной секунды
+если все соседи достигли консенсуса:
+    переходим в финальную фазу (т.е. агент завершает работу)
+иначе:
+    записываем в словарь всех соседей, которые достигли консенсуса
+    повторяем итерацию
+ */
+
 class ConsensusAgent(
     val agentID: Int,
-    private var delta: Double = 0.5,
+    private var delta: Double = 0.1,
     private val epsilon: Double = 0.1,
     private val mainController: MainController
 ) : Agent() {
@@ -43,6 +68,9 @@ class ConsensusAgent(
     private var probabilisticEdge: Int? = null
     private var hasConsensus = false
     private var hasNeighborsConsensus = mutableMapOf<Int, Boolean>()
+    private var wasSent = mutableMapOf<Int, Boolean>()
+    private var q = mutableListOf<ACLMessage>()
+    private var t = 0
 
     fun configureTopology(neighbors_: List<Pair<Int, Int>>, number_: Int) {
         neighbors = neighbors_
@@ -53,7 +81,7 @@ class ConsensusAgent(
         delayedEdge = neighbors.find { it.second == DELAYED }?.first
         probabilisticEdge = neighbors.find { it.second == PROBABILISTIC }?.first
         neighbors.indices.forEach { hasNeighborsConsensus[it] = false }
-        delta = 1.0 / (1 + neighbors.size)
+        neighbors.indices.forEach { wasSent[it] = false }
     }
 
     fun getMeanValue() = currentMeanValue
@@ -66,13 +94,16 @@ class ConsensusAgent(
 
         private fun sendMessagesToAllNeighbors() {
             for (j in neighbors) {
+                if (hasNeighborsConsensus[j.first] == true) {
+                    continue
+                }
                 when (j.second) {
                     SIMPLE -> {
                         val msg = ACLMessage(ACLMessage.INFORM)
                         msg.addReceiver(mainController.agents[j.first - 1].aid)
                         msg.content = (agentNumber + noiseGenerator.sample()).toString() + ";" + hasConsensus.toString()
                         send(msg)
-                        println("$agentID -> ${j.first}: ${msg.content}")
+//                        println("$agentID -> ${j.first}: ${msg.content}")
                     }
 
                     PROBABILISTIC -> {
@@ -83,14 +114,14 @@ class ConsensusAgent(
                             msg.content =
                                 (agentNumber + noiseGenerator.sample()).toString() + ";" + hasConsensus.toString()
                             send(msg)
-                            println("$agentID -> ${j.first}: ${msg.content}")
+//                            println("$agentID -> ${j.first}: ${msg.content}")
                         }
                     }
 
                     DELAYED -> {
                         if (savedMessage != null) {
                             send(savedMessage)
-                            println("$agentID -> ${j.first}: ${savedMessage?.content}")
+//                            println("$agentID -> ${j.first}: ${savedMessage?.content}")
                         }
                         savedMessage = ACLMessage(ACLMessage.INFORM)
                         savedMessage?.addReceiver(mainController.agents[j.first - 1].aid)
@@ -101,35 +132,67 @@ class ConsensusAgent(
             }
         }
 
+        private fun checkConsensus() {
+            hasConsensus =
+                receivedNumbers.values.all { abs(it - currentMeanValue).pow(2.0) <= epsilon }
+            phase = if (hasConsensus) 3 else 1
+            sendMessagesToAllNeighbors()
+            receivedNumbers = mutableMapOf()
+            currentReceivedMessagesCount = 0
+
+            if (hasConsensus) {
+                println(message = "Агент $agentID достиг консенсуса. Mean value = $currentMeanValue")
+            }
+        }
+
         override fun action() {
             when (phase) {
                 1 -> {
+//                    t++
+//                    println("Агент $agentID: $currentMeanValue")
+//                    if (hasNeighborsConsensus.values.all { it == true }) {
+//                        hasConsensus = true
+//                        phase = 4
+//                    }
                     sendMessagesToAllNeighbors()
                     phase = 2
                 }
 
                 2 -> {
-                    // получаем числа от соседей
-                    val msg = receive()
-                    if (msg != null) {
+//                    if (hasNeighborsConsensus.values.all { it == true }) {
+//                        hasConsensus = true
+//                        phase = 4
+//                    }
+
+                    while (q.isNotEmpty()) {
+                        val msg = q.removeFirst()
                         val sender = msg.sender.localName.toInt()
                         val number = msg.content.split(";")[0].toDouble()
                         hasNeighborsConsensus[sender] = msg.content.split(";")[1].toBoolean()
                         receivedNumbers[sender] = number
                         currentReceivedMessagesCount++
                         currentMeanValue += delta * (number - currentMeanValue)
-                        println("$agentID <- $sender: ${msg.content}")
-//                        Thread.sleep(1000)
-                        // проверяем, достигнут ли консенсус
-                        if (currentReceivedMessagesCount == neighbors.size) {
-                            hasConsensus = receivedNumbers.values.all { abs(it - currentMeanValue).pow(2.0) <= epsilon }
-                            phase = if (hasConsensus) 3 else 1
-                            sendMessagesToAllNeighbors()
-                            receivedNumbers = mutableMapOf()
-                            currentReceivedMessagesCount = 0
+//                        println("$agentID <- $sender: ${msg.content}")
+                    }
 
-                            if (hasConsensus) {
-                                println(message = "Агент $agentID достиг консенсуса. Mean value = $currentMeanValue")
+                    val msg = receive()
+                    if (msg != null) {
+                        val sender = msg.sender.localName.toInt()
+                        val number = msg.content.split(";")[0].toDouble()
+                        if (wasSent[sender] == true) {
+                            q.add(msg)
+                            checkConsensus()
+                            for (key in wasSent.keys) {
+                                wasSent[key] = false
+                            }
+                        } else {
+                            hasNeighborsConsensus[sender] = msg.content.split(";")[1].toBoolean()
+                            receivedNumbers[sender] = number
+                            currentReceivedMessagesCount++
+                            currentMeanValue += delta * (number - currentMeanValue)
+//                            println("$agentID <- $sender: ${msg.content}")
+                            if (currentReceivedMessagesCount == neighbors.size) {
+                                checkConsensus()
                             }
                         }
                     } else {
@@ -142,7 +205,7 @@ class ConsensusAgent(
                     if (hasNeighborsConsensus.values.all { it }) {
                         phase = 4
                     } else {
-//                        sendMessagesToAllNeighbors()
+                        sendMessagesToAllNeighbors()
                         val msg = receive()
                         if (msg != null) {
                             val sender = msg.sender.localName.toInt()
@@ -155,6 +218,7 @@ class ConsensusAgent(
             }
         }
     }
+
 
     fun isCalculated() = phase == 4
 }
@@ -177,7 +241,7 @@ class MainController(
 
         try {
             for (i in 1..nAgents) {
-                val agent = ConsensusAgent(i, 0.5, 0.1, this)
+                val agent = ConsensusAgent(i, 0.1, 0.1, this)
                 agents.add(agent)
             }
             for (i in 1..nAgents) {
@@ -222,6 +286,7 @@ fun main() {
         }
 
     val truthMeanValue = numbers.sum().toDouble() / numbers.size
+    println("Истинное среднее арифметическое = $truthMeanValue")
 
     val mc = MainController(nAgents, numbers, topology)
     mc.initAgents()
@@ -232,8 +297,6 @@ fun main() {
 
     val approximativeMeanValue = mc.getApproximativeMeanValue()
 
-
-    println("Истинное среднее арифметическое = $truthMeanValue")
     println("Вычисленное среднее значение = $approximativeMeanValue")
     println("Невязка = ${abs(truthMeanValue - approximativeMeanValue)}")
 }
