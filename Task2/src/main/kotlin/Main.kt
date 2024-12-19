@@ -179,21 +179,14 @@ class ConsensusAgent(
                     if (msg != null) {
                         val sender = msg.sender.localName.toInt()
                         val number = msg.content.split(";")[0].toDouble()
-                        if (wasSent[sender] == true) {
-                            q.add(msg)
-                            checkConsensus()
-                            for (key in wasSent.keys) {
-                                wasSent[key] = false
-                            }
-                        } else {
-                            hasNeighborsConsensus[sender] = msg.content.split(";")[1].toBoolean()
-                            receivedNumbers[sender] = number
-                            currentReceivedMessagesCount++
-                            currentMeanValue += delta * (number - currentMeanValue)
+
+                        hasNeighborsConsensus[sender] = msg.content.split(";")[1].toBoolean()
+                        receivedNumbers[sender] = number
+                        currentReceivedMessagesCount++
+                        currentMeanValue += delta * (number - currentMeanValue)
 //                            println("$agentID <- $sender: ${msg.content}")
-                            if (currentReceivedMessagesCount == neighbors.size) {
-                                checkConsensus()
-                            }
+                        if (currentReceivedMessagesCount == 2) {
+                            checkConsensus()
                         }
                     } else {
                         block()
